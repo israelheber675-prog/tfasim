@@ -4,6 +4,11 @@ import { useFormContext } from 'react-hook-form'
 import { FormField } from '@/components/form/FormField'
 import { NumberStepper } from '@/components/form/NumberStepper'
 import { HEALTH_FUNDS, ID_TYPES, PATIENT_SEX, CONTACT_RELATIONS, PREFERRED_LANGUAGES } from '@/lib/constants/lists'
+import { useDuplicateCheck } from '@/hooks/useDuplicateCheck'
+import { useCallStore } from '@/stores/callStore'
+import { StickerOCR } from '@/components/form/StickerOCR'
+import { AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
 import type { CallData } from '@/types/call'
 
 const INSURANCE_TYPES = ['חברת ביטוח פרטית', 'ביטוח חו"ל']
@@ -11,9 +16,12 @@ const s = 'flex h-11 w-full rounded-md border border-input bg-background px-3 py
 
 export function Section2PatientInfo() {
   const { register, setValue, watch } = useFormContext<CallData>()
+  const { callId } = useCallStore()
   const healthFund = watch('healthFund')
   const patientAge = watch('patientAge')
   const idType = watch('patientIdType')
+  const patientId = watch('patientId')
+  const duplicate = useDuplicateCheck(patientId, callId)
 
   function handleDobChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value
@@ -33,9 +41,39 @@ export function Section2PatientInfo() {
         פרטי המטופל
       </h2>
 
+      {/* אזהרת כפילות */}
+      {duplicate.found && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
+          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-800">אזהרת כפילות!</p>
+            <p className="text-amber-700">
+              מטופל עם ת.ז. זו נמצא בקריאה אחרת מה-12 שעות האחרונות:{' '}
+              <span className="font-medium">{duplicate.patientName}</span>
+              {' — '}
+              <Link href={`/calls/${duplicate.callId}`} className="underline hover:text-amber-900" target="_blank">
+                פתח קריאה
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 2a — זיהוי */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-500 mb-3">זיהוי</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-500">זיהוי</h3>
+          <StickerOCR onExtracted={data => {
+            if (data.patientId) setValue('patientId', data.patientId, { shouldDirty: true })
+            if (data.patientFirstName) setValue('patientFirstName', data.patientFirstName, { shouldDirty: true })
+            if (data.patientLastName) setValue('patientLastName', data.patientLastName, { shouldDirty: true })
+            if (data.patientDob) {
+              setValue('patientDob', data.patientDob, { shouldDirty: true })
+              const ms = Date.now() - new Date(data.patientDob).getTime()
+              setValue('patientAge', Math.floor(ms / (365.25 * 24 * 3600 * 1000)), { shouldDirty: true })
+            }
+          }} />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-5">
 
           <FormField label="שם פרטי" htmlFor="patientFirstName">
@@ -166,28 +204,6 @@ export function Section2PatientInfo() {
               {...register('patientEmail')} className={s} />
           </FormField>
 
-          <FormField label="שפה מועדפת" htmlFor="preferredLanguage">
-            <select id="preferredLanguage" {...register('preferredLanguage')} className={s}>
-              <option value="">בחר</option>
-              {PREFERRED_LANGUAGES.map(x => <option key={x} value={x}>{x}</option>)}
-            </select>
-          </FormField>
-
-          <FormField label="שם איש קשר לחירום" htmlFor="contactName">
-            <input id="contactName" type="text" {...register('contactName')} className={s} />
-          </FormField>
-
-          <FormField label="קרבה" htmlFor="contactRelation">
-            <select id="contactRelation" {...register('contactRelation')} className={s}>
-              <option value="">בחר</option>
-              {CONTACT_RELATIONS.map(x => <option key={x} value={x}>{x}</option>)}
-            </select>
-          </FormField>
-
-          <FormField label="טלפון איש קשר" htmlFor="contactPhone">
-            <input id="contactPhone" type="tel" inputMode="tel" maxLength={10}
-              {...register('contactPhone')} className={s} />
-          </FormField>
 
         </div>
       </div>
@@ -216,13 +232,6 @@ export function Section2PatientInfo() {
             </>
           )}
 
-          <FormField label="מס׳ הפניה / התחייבות" htmlFor="referralNumber">
-            <input id="referralNumber" type="text" {...register('referralNumber')} className={s} />
-          </FormField>
-
-          <FormField label="מס׳ חבר בקופה" htmlFor="healthFundId">
-            <input id="healthFundId" type="text" {...register('healthFundId')} className={s} />
-          </FormField>
 
         </div>
       </div>

@@ -5,12 +5,15 @@ import { useSyncStore } from '@/stores/syncStore'
 import { listenForOnline, syncAll } from '@/lib/offline/sync'
 
 export function useOffline() {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  )
+  // מתחילים תמיד עם true (זהה לשרת) ומעדכנים ב-useEffect אחרי mount
+  const [isOnline, setIsOnline] = useState(true)
   const setStatus = useSyncStore((s) => s.setStatus)
 
   useEffect(() => {
+    // עדכן מיד לפי המצב האמיתי
+    setIsOnline(navigator.onLine)
+    if (!navigator.onLine) setStatus('offline')
+
     const onOnline = () => {
       setIsOnline(true)
       setStatus('syncing')

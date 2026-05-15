@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useFormContext } from 'react-hook-form'
 import { FormField } from '@/components/form/FormField'
 import { TimeField } from '@/components/form/TimeField'
 import { SHIFTS, CALL_LOCATIONS, CALL_TYPES, CALL_PRIORITIES } from '@/lib/constants/lists'
+import { MapPin, Loader2 } from 'lucide-react'
+import { toast } from '@/lib/toast'
 import type { CallData } from '@/types/call'
 
 const PAYMENT_TYPES = ['מזומן', 'אשראי', 'קופ"ח', 'חברת ביטוח', 'משרד', 'לצ"ל', 'ביטוח לאומי', 'חיוב מאוחר', 'אחר']
@@ -14,6 +16,36 @@ const ta = 'flex w-full rounded-md border border-input bg-background px-3 py-2 t
 
 export function Section1EventDetails() {
   const { register, setValue } = useFormContext<CallData>()
+  const [gpsLoading, setGpsLoading] = useState(false)
+
+  async function fillGPS() {
+    if (!navigator.geolocation) { toast.warning('GPS אינו נתמך בדפדפן זה'); return }
+    setGpsLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        setValue('eventGpsLat', lat, { shouldDirty: true })
+        setValue('eventGpsLng', lng, { shouldDirty: true })
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=he`
+          )
+          const data = await res.json() as { address?: Record<string, string> }
+          const addr = data.address ?? {}
+          if (addr.road)         setValue('eventStreet', addr.road, { shouldDirty: true })
+          if (addr.house_number) setValue('eventHouseNumber', addr.house_number, { shouldDirty: true })
+          if (addr.city || addr.town || addr.village)
+            setValue('eventCity', addr.city ?? addr.town ?? addr.village ?? '', { shouldDirty: true })
+          toast.success('מיקום אותר בהצלחה')
+        } catch {
+          toast.info(`קואורדינטות: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+        }
+        setGpsLoading(false)
+      },
+      () => { toast.error('לא ניתן לאתר מיקום'); setGpsLoading(false) },
+      { timeout: 10000, enableHighAccuracy: true }
+    )
+  }
 
   useEffect(() => {
     setValue('callDate', new Date().toISOString().split('T')[0])
@@ -77,16 +109,6 @@ export function Section1EventDetails() {
               onNow={() => setValue('callReceivedTime', now(), { shouldDirty: true })} />
           </FormField>
 
-          <FormField label="שעת יציאה מהתחנה" htmlFor="departureTime">
-            <TimeField id="departureTime" {...register('departureTime')}
-              onNow={() => setValue('departureTime', now(), { shouldDirty: true })} />
-          </FormField>
-
-          <FormField label="שעת הגעה לזירה" htmlFor="arrivalTime">
-            <TimeField id="arrivalTime" {...register('arrivalTime')}
-              onNow={() => setValue('arrivalTime', now(), { shouldDirty: true })} />
-          </FormField>
-
           <FormField label="שעת הגעה למטופל" htmlFor="patientContactTime">
             <TimeField id="patientContactTime" {...register('patientContactTime')}
               onNow={() => setValue('patientContactTime', now(), { shouldDirty: true })} />
@@ -97,22 +119,25 @@ export function Section1EventDetails() {
               onNow={() => setValue('sceneTime', now(), { shouldDirty: true })} />
           </FormField>
 
-          <FormField label="שעת הגעה לח״ב / יעד" htmlFor="hospitalArrivalTime">
-            <TimeField id="hospitalArrivalTime" {...register('hospitalArrivalTime')}
-              onNow={() => setValue('hospitalArrivalTime', now(), { shouldDirty: true })} />
-          </FormField>
-
-          <FormField label="שעת סיום האירוע" htmlFor="callEndTime">
-            <TimeField id="callEndTime" {...register('callEndTime')}
-              onNow={() => setValue('callEndTime', now(), { shouldDirty: true })} />
-          </FormField>
-
         </div>
       </div>
 
       {/* 1b — כתובת מלאה */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-500 mb-3">כתובת האירוע</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-500">כתובת האירוע</h3>
+          <button
+            type="button"
+            onClick={fillGPS}
+            disabled={gpsLoading}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-[#2E75B6]/40 text-xs text-[#1F4E78] hover:bg-[#DDEBF7] disabled:opacity-50 transition-colors"
+          >
+            {gpsLoading
+              ? <Loader2 size={13} className="animate-spin" />
+              : <MapPin size={13} />}
+            {gpsLoading ? 'מאתר...' : 'GPS אוטומטי'}
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-5">
 
           <FormField label="עיר / יישוב" htmlFor="eventCity" className="sm:col-span-2">

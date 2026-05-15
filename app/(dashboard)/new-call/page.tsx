@@ -6,8 +6,10 @@ import { ChevronRight, ChevronLeft, CheckCircle2, Save } from 'lucide-react'
 import { useCallStore } from '@/stores/callStore'
 import { useAutosave } from '@/hooks/useAutosave'
 import { useOffline } from '@/hooks/useOffline'
-import { db } from '@/lib/offline/db'
+import { useFormProgress } from '@/hooks/useFormProgress'
+import { db, auditLog } from '@/lib/offline/db'
 import { enqueueUpsert, syncAll } from '@/lib/offline/sync'
+import { toast } from '@/lib/toast'
 import type { CallData } from '@/types/call'
 
 import { Section1EventDetails } from '@/components/sections/Section1EventDetails'
@@ -42,14 +44,23 @@ const STEPS = [
 export default function NewCallPage() {
   const { callId, data, initNewCall, setFields } = useCallStore()
   const { isOnline } = useOffline()
+  const { stepResults, overall } = useFormProgress(data)
   const [step, setStep] = useState(1)
+  const [visited, setVisited] = useState<Set<number>>(new Set([1]))
   const [saved, setSaved] = useState(false)
   useAutosave()
 
   const methods = useForm<CallData>({ defaultValues: data, mode: 'onBlur' })
   const { handleSubmit, watch, reset, setValue, formState: { isSubmitting } } = methods
 
-  useEffect(() => { initNewCall() }, [initNewCall])
+  useEffect(() => {
+    initNewCall()
+  }, [initNewCall])
+
+  useEffect(() => {
+    if (callId) auditLog('call_created', callId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId])
 
   useEffect(() => {
     const sub = watch((values) => setFields(values as Partial<CallData>))
@@ -66,6 +77,7 @@ export default function NewCallPage() {
       updatedAt: Date.now(),
       synced: false,
     })
+    auditLog('call_draft_saved', callId)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -74,8 +86,7 @@ export default function NewCallPage() {
     if (!callId) return
 
     // Auto-set form close time
-    const closeTime = nowTime()
-    values.formClosedTime = values.formClosedTime || closeTime
+    values.formClosedTime = values.formClosedTime || nowTime()
     setValue('formClosedTime', values.formClosedTime)
 
     await db.calls.put({
@@ -85,25 +96,47 @@ export default function NewCallPage() {
       synced: false,
     })
     await enqueueUpsert(callId, values as Record<string, unknown>)
+    auditLog('call_submitted', callId)
 
     // סנכרון מיידי אם מחובר
     if (isOnline) {
+      try { await syncAll() } catch { /* ברקע */ }
+    }
+
+    // שליחת מייל למטופל אם הוזנה כתובת
+    const email = values.patientEmail
+    if (email && isOnline) {
       try {
-        await syncAll()
+        const patientName = [values.patientFirstName, values.patientLastName].filter(Boolean).join(' ')
+        const res = await fetch('/api/email/send-pcr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            callId,
+            data: values,
+            recipientEmail: email,
+            patientName,
+          }),
+        })
+        const result = await res.json() as { success?: boolean; message?: string; error?: string }
+        if (result.success) {
+          toast.success(isOnline ? `הקריאה נשמרה! PDF נשלח ל-${email}` : `נשמר מקומית. PDF נשלח ל-${email}`)
+          return
+        }
       } catch {
-        // נסנכרן ברקע
+        // אם המייל נכשל — לא עוצרים
       }
     }
 
-    alert(
-      isOnline
-        ? '✅ הקריאה נשמרה וסונכרנה בהצלחה!'
-        : '💾 הקריאה נשמרה מקומית — תסונכרן אוטומטית כשיחזור חיבור לאינטרנט.'
-    )
+    toast.success(isOnline ? 'הקריאה נשמרה וסונכרנה!' : 'הקריאה נשמרה — תסונכרן כשיחזור חיבור')
   }
 
-  function goNext() { setStep(s => Math.min(s + 1, STEPS.length)) }
-  function goPrev() { setStep(s => Math.max(s - 1, 1)) }
+  function goTo(n: number) {
+    setStep(n)
+    setVisited(prev => new Set([...prev, n]))
+  }
+  function goNext() { goTo(Math.min(step + 1, STEPS.length)) }
+  function goPrev() { goTo(Math.max(step - 1, 1)) }
 
   const isLastStep = step === STEPS.length
 
@@ -132,33 +165,47 @@ export default function NewCallPage() {
 
       {/* Stepper */}
       <div className="mb-6">
-        {/* Progress bar */}
-        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mb-3">
-          <div
-            className="h-full bg-[#1F4E78] rounded-full transition-all duration-300"
-            style={{ width: `${(step / STEPS.length) * 100}%` }}
-          />
+        {/* Overall progress bar */}
+        <div className="flex items-center gap-2 mb-1">
+          <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${overall}%`,
+                background: overall >= 80 ? '#22c55e' : overall >= 40 ? '#1F4E78' : '#94a3b8'
+              }}
+            />
+          </div>
+          <span className="text-xs text-gray-400 shrink-0 w-8 text-left">{overall}%</span>
         </div>
 
         {/* Step pills — scrollable on mobile */}
         <div className="overflow-x-auto">
-          <div className="flex gap-1 min-w-max">
-            {STEPS.map(s => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setStep(s.id)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                  s.id === step
-                    ? 'bg-[#1F4E78] text-white'
-                    : s.id < step
-                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-              >
-                {s.id < step ? '✓ ' : ''}{s.shortLabel}
-              </button>
-            ))}
+          <div className="flex gap-1 min-w-max mt-2">
+            {STEPS.map(s => {
+              const isCurrent = s.id === step
+              const wasVisited = visited.has(s.id) && !isCurrent
+              const stepPct = stepResults.find(r => r.step === s.id)?.pct ?? 0
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => goTo(s.id)}
+                  title={`${s.label} — ${stepPct}%`}
+                  className={`relative px-2.5 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                    isCurrent
+                      ? 'bg-[#1F4E78] text-white'
+                      : wasVisited && stepPct === 100
+                      ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                      : wasVisited
+                      ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {wasVisited && stepPct === 100 ? '✓ ' : ''}{s.shortLabel}
+                </button>
+              )
+            })}
           </div>
         </div>
 

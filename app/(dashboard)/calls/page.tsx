@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, Cloud, CloudOff, AlertCircle, FileText, Search, X } from 'lucide-react'
+import { Plus, Cloud, CloudOff, AlertCircle, FileText, Search, X, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react'
 import { db, type DraftCall } from '@/lib/offline/db'
+import { PDFButton } from '@/components/pdf/PDFButton'
+import { forceRetryAll } from '@/lib/offline/sync'
 
 function SyncBadge({ call }: { call: DraftCall }) {
   if (call.syncError) return (
@@ -33,13 +35,25 @@ export default function CallsPage() {
   const [calls, setCalls] = useState<DraftCall[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
-  useEffect(() => {
+  function loadCalls() {
     db.calls.orderBy('updatedAt').reverse().toArray().then((rows) => {
       setCalls(rows)
       setLoading(false)
     })
-  }, [])
+  }
+
+  useEffect(() => { loadCalls() }, [])
+
+  const pendingCount = useMemo(() => calls.filter(c => !c.synced).length, [calls])
+
+  async function handleSyncAll() {
+    setSyncing(true)
+    await forceRetryAll()
+    loadCalls()
+    setSyncing(false)
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -86,11 +100,29 @@ export default function CallsPage() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[#1F4E78]">קריאות</h1>
-        <Link href="/new-call"
-          className="flex items-center gap-2 h-11 px-5 rounded-md bg-[#1F4E78] text-white text-sm font-medium hover:bg-[#2E75B6] transition-colors">
-          <Plus size={16} />
-          קריאה חדשה
-        </Link>
+        <div className="flex items-center gap-2">
+          {pendingCount > 0 && (
+            <button
+              onClick={handleSyncAll}
+              disabled={syncing}
+              className="flex items-center gap-2 h-11 px-4 rounded-md bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-60"
+            >
+              {syncing
+                ? <Loader2 size={15} className="animate-spin" />
+                : <RefreshCw size={15} />}
+              {syncing ? 'מסנכרן...' : `סנכרן הכל (${pendingCount})`}
+            </button>
+          )}
+          <Link href="/mci"
+            className="flex items-center gap-2 h-11 px-4 rounded-md bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">
+            אמ"כ
+          </Link>
+          <Link href="/new-call"
+            className="flex items-center gap-2 h-11 px-5 rounded-md bg-[#1F4E78] text-white text-sm font-medium hover:bg-[#2E75B6] transition-colors">
+            <Plus size={16} />
+            קריאה חדשה
+          </Link>
+        </div>
       </div>
 
       {/* חיפוש */}
@@ -144,6 +176,7 @@ export default function CallsPage() {
                   <div className="flex flex-col items-end gap-1.5 shrink-0 mr-4">
                     <span className="text-xs text-gray-400">{formatDate(call.updatedAt)}</span>
                     <SyncBadge call={call} />
+                    <PDFButton callId={call.id} variant="icon" />
                   </div>
                 </Link>
               </li>

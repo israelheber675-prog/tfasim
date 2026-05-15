@@ -5,6 +5,7 @@ import { useFormContext } from 'react-hook-form'
 import { Plus, Trash2 } from 'lucide-react'
 import { FormField } from '@/components/form/FormField'
 import { NumberStepper } from '@/components/form/NumberStepper'
+import { VitalsChart } from '@/components/vitals/VitalsChart'
 import { AVPU, GCS_EYE, GCS_VERBAL, GCS_MOTOR } from '@/lib/constants/lists'
 import { useCallStore } from '@/stores/callStore'
 import type { CallData, VitalSet } from '@/types/call'
@@ -45,6 +46,9 @@ export function Section5Vitals() {
       <h2 id="section5-heading" className="text-lg font-semibold text-[#1F4E78] border-b border-[#2E75B6]/30 pb-2">
         סימנים חיוניים
       </h2>
+
+      {/* גרף — מוצג כשיש לפחות מדידה אחת */}
+      {vitals.length > 0 && <VitalsChart vitals={vitals} />}
 
       {/* Vitals table */}
       {vitals.length > 0 && (
@@ -209,7 +213,7 @@ export function Section5Vitals() {
         <p className="text-sm font-medium text-gray-700">Glasgow Coma Scale (GCS)</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="עיניים (E)" htmlFor="gcsEye">
-            <select id="gcsEye" {...register('gcsEye', { valueAsNumber: true })}
+            <select id="gcsEye" {...register('gcsEye')}
               className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <option value="">בחר</option>
               {GCS_EYE.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
@@ -217,7 +221,7 @@ export function Section5Vitals() {
           </FormField>
 
           <FormField label="דיבור (V)" htmlFor="gcsVerbal">
-            <select id="gcsVerbal" {...register('gcsVerbal', { valueAsNumber: true })}
+            <select id="gcsVerbal" {...register('gcsVerbal')}
               className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <option value="">בחר</option>
               {GCS_VERBAL.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
@@ -225,7 +229,7 @@ export function Section5Vitals() {
           </FormField>
 
           <FormField label="תנועה (M)" htmlFor="gcsMotor">
-            <select id="gcsMotor" {...register('gcsMotor', { valueAsNumber: true })}
+            <select id="gcsMotor" {...register('gcsMotor')}
               className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <option value="">בחר</option>
               {GCS_MOTOR.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}

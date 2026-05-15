@@ -48,6 +48,17 @@ export const useCallStore = create<CallState>()(
       set((state) => {
         state.callId = uuidv4()
         state.data = emptyCall()
+        // Pre-fill crew defaults from settings
+        try {
+          const raw = typeof window !== 'undefined' ? localStorage.getItem('pcr-settings') : null
+          if (raw) {
+            const s = JSON.parse(raw) as Record<string, string>
+            if (s.ambulanceNumber) state.data.ambulanceNumber = s.ambulanceNumber
+            if (s.defaultDriver)   state.data.driver          = s.defaultDriver
+            if (s.defaultParamedic) state.data.paramedic      = s.defaultParamedic
+            if (s.defaultEmt1)     state.data.emt1            = s.defaultEmt1
+          }
+        } catch { /* skip */ }
         state.isDirty = false
         state.lastSavedAt = null
       }),

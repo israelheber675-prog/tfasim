@@ -292,17 +292,20 @@ export interface CallData {
   // ── SECTION 10: MVC ──────────────────────────────────────
   isMVC?: string
   policeIncidentNumber?: string
+  fatalityAtScene?: string
+  scenePhotos?: string[]
+  hospitalStickerPhotos?: string[]
+  babyStickerPhotos?: string[]
+  // Legacy single-vehicle fields (kept for backward compat)
   seatbelt?: string
   airbagDeployed?: string
   extrication?: string
   extractionTime?: number
   ejectedFromVehicle?: string
-  fatalityAtScene?: string
   estimatedSpeed?: number
   impactDirection?: string
-  scenePhotos?: string[]
-  hospitalStickerPhotos?: string[]
-  babyStickerPhotos?: string[]
+  // Multi-vehicle array
+  vehicles?: MVCVehicle[]
 
   // ── SECTION 11: Evacuation ───────────────────────────────
   evacuationStatus?: string
@@ -404,8 +407,63 @@ export interface IVAccess {
   io?: boolean
 }
 
+export interface MVCVehicle {
+  id: string
+  vehicleType?: string       // סוג הרכב
+  licensePlate?: string      // לוחית רישוי
+  color?: string
+  impactDirection?: string
+  estimatedSpeed?: number
+  seatbelt?: string
+  airbagDeployed?: string
+  extrication?: string
+  extractionTime?: number
+  ejectedFromVehicle?: string
+  passengerCount?: number
+  notes?: string
+}
+
 export interface CrewSignature {
   name: string
   role: string
   signature: string
+}
+
+// ── MCI (Mass Casualty Incident) ───────────────────────────
+
+export type TriageColor = 'red' | 'yellow' | 'green' | 'black'
+
+export interface MCIPatient {
+  id: string
+  triageColor: TriageColor
+  tagNumber?: string
+  name?: string
+  age?: number
+  sex?: string
+  chiefComplaint?: string
+  respiratoryRate?: number
+  pulseRate?: number
+  avpu?: string
+  bpSystolic?: number
+  spo2?: number
+  injuries?: string
+  treatments?: string
+  destination?: string
+  notes?: string
+  createdAt: number
+}
+
+export interface MCIIncident {
+  id: string
+  incidentNumber?: string
+  location?: string
+  date: string
+  time: string
+  incidentType?: string
+  commanderName?: string
+  patients: MCIPatient[]
+  notes?: string
+  createdAt: number
+  updatedAt: number
+  synced: boolean
 }

@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowRight, Pencil, Cloud, CloudOff, AlertCircle, Loader2 } from 'lucide-react'
+import { ArrowRight, Pencil, Cloud, CloudOff, AlertCircle, Loader2, Lock, LockOpen } from 'lucide-react'
 import Link from 'next/link'
-import { db, type DraftCall } from '@/lib/offline/db'
+import { db, type DraftCall, auditLog } from '@/lib/offline/db'
 import { syncAll } from '@/lib/offline/sync'
+import { PDFButton } from '@/components/pdf/PDFButton'
+import { QRButton } from '@/components/pdf/QRButton'
+import { VitalsChart } from '@/components/vitals/VitalsChart'
+import { ApprovalBanner, type ApprovalStatus } from '@/components/calls/ApprovalBanner'
+import type { VitalSet } from '@/types/call'
 
 type Data = Record<string, unknown>
 
@@ -34,13 +39,31 @@ export default function CallDetailPage() {
   const [call, setCall] = useState<DraftCall | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [locking, setLocking] = useState(false)
+  const [approval, setApproval] = useState<{ status: ApprovalStatus; reviewedBy?: string; reviewedAt?: number; reviewNote?: string } | null>(null)
 
   useEffect(() => {
     db.calls.get(id).then(c => {
       setCall(c ?? null)
       setLoading(false)
+      if (c) {
+        auditLog('call_viewed', id)
+        const a = (c.data as Record<string, unknown>).approval as typeof approval
+        setApproval(a ?? { status: 'pending' })
+      }
     })
   }, [id])
+
+  const isLocked = !!(call?.data as Record<string, unknown>)?.formLocked
+
+  async function toggleLock() {
+    if (!call) return
+    setLocking(true)
+    const newData = { ...call.data, formLocked: !isLocked }
+    await db.calls.put({ ...call, data: newData, updatedAt: Date.now() })
+    setCall(c => c ? { ...c, data: newData } : c)
+    setLocking(false)
+  }
 
   async function handleSync() {
     setSyncing(true)
@@ -103,13 +126,45 @@ export default function CallDetailPage() {
             </button>
           )}
 
-          <Link href={`/calls/${id}/edit`}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-[#1F4E78] text-white text-sm hover:bg-[#2E75B6] transition-colors">
-            <Pencil size={14} />
-            ערוך
-          </Link>
+          <QRButton callId={id} patientName={patientName} />
+          <PDFButton callId={id} variant="icon" />
+
+          <button
+            onClick={toggleLock}
+            disabled={locking}
+            title={isLocked ? 'בטל נעילה' : 'נעל טופס'}
+            className={`h-9 w-9 flex items-center justify-center rounded-md border transition-colors ${
+              isLocked
+                ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                : 'border-gray-200 hover:bg-gray-100 text-gray-500'
+            }`}
+          >
+            {locking ? <Loader2 size={14} className="animate-spin" /> : isLocked ? <Lock size={14} /> : <LockOpen size={14} />}
+          </button>
+
+          {!isLocked && (
+            <Link href={`/calls/${id}/edit`}
+              className="flex items-center gap-1.5 h-9 px-4 rounded-md bg-[#1F4E78] text-white text-sm hover:bg-[#2E75B6] transition-colors">
+              <Pencil size={14} />
+              ערוך
+            </Link>
+          )}
+          {isLocked && (
+            <span className="flex items-center gap-1.5 h-9 px-3 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+              <Lock size={12} /> נעול
+            </span>
+          )}
         </div>
       </div>
+
+      {/* אישור מפקח */}
+      {approval && (
+        <ApprovalBanner
+          callId={id}
+          approval={approval}
+          onUpdate={setApproval}
+        />
+      )}
 
       {/* פרטי האירוע */}
       <Section title="פרטי האירוע">
@@ -157,10 +212,28 @@ export default function CallDetailPage() {
         </Section>
       )}
 
+      {/* רקע רפואי */}
+      {(get('hasMedicalHistory') === 'כן' || get('chronicConditions') || get('medications')) && (
+        <Section title="רקע רפואי">
+          <Row label="מחלות רקע" value={
+            Array.isArray(d['chronicConditions'])
+              ? (d['chronicConditions'] as string[]).join(', ')
+              : get('chronicConditions')
+          } />
+          <Row label="תרופות קבועות" value={get('medications')} />
+          <Row label="אלרגיות" value={
+            Array.isArray(d['allergies'])
+              ? (d['allergies'] as string[]).join(', ')
+              : get('allergyDetail')
+          } />
+        </Section>
+      )}
+
       {/* סימנים חיוניים */}
       {Array.isArray(d['vitals']) && (d['vitals'] as unknown[]).length > 0 && (
         <Section title="סימנים חיוניים">
-          <div className="overflow-x-auto">
+          <VitalsChart vitals={d['vitals'] as VitalSet[]} />
+          <div className="overflow-x-auto mt-3">
             <table className="w-full text-xs">
               <thead className="text-gray-500 border-b border-gray-100">
                 <tr>
@@ -170,17 +243,95 @@ export default function CallDetailPage() {
                   <th className="py-1 px-2 text-right font-medium">נשימה</th>
                   <th className="py-1 px-2 text-right font-medium">SpO₂</th>
                   <th className="py-1 px-2 text-right font-medium">גלוקוז</th>
+                  <th className="py-1 px-2 text-right font-medium">כאב</th>
                 </tr>
               </thead>
               <tbody>
                 {(d['vitals'] as Record<string, unknown>[]).map((v, i) => (
                   <tr key={i} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-2">{String(v.time ?? '')}</td>
+                    <td className="py-1.5 pr-2 font-mono">{String(v.time ?? '')}</td>
                     <td className="py-1.5 px-2">{String(v.pulseRate ?? '—')}</td>
                     <td className="py-1.5 px-2">{v.bpSystolic ? `${v.bpSystolic}/${v.bpDiastolic}` : '—'}</td>
                     <td className="py-1.5 px-2">{String(v.respiratoryRate ?? '—')}</td>
                     <td className="py-1.5 px-2">{v.spo2 ? `${v.spo2}%` : '—'}</td>
                     <td className="py-1.5 px-2">{String(v.bloodGlucose ?? '—')}</td>
+                    <td className="py-1.5 px-2">{v.painScore != null ? `${v.painScore}/10` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {(get('avpu') || get('gcsEye') || get('pupils')) && (
+            <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+              {get('avpu') && <span><span className="text-gray-400">AVPU: </span>{get('avpu')}</span>}
+              {(get('gcsEye') || get('gcsVerbal') || get('gcsMotor')) && (
+                <span>
+                  <span className="text-gray-400">GCS: </span>
+                  E{get('gcsEye') || '?'} V{get('gcsVerbal') || '?'} M{get('gcsMotor') || '?'}
+                </span>
+              )}
+              {get('pupils') && <span><span className="text-gray-400">אישונים: </span>{get('pupils')}</span>}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* טיפול — חמצן */}
+      {get('o2Delivery') && get('o2Delivery') !== 'לא ניתן חמצן' && (
+        <Section title="חמצן">
+          <Row label="אופן מתן" value={get('o2Delivery')} />
+          <Row label="ספיקה" value={get('o2FlowRate') ? `${get('o2FlowRate')} ל/דקה` : undefined} />
+        </Section>
+      )}
+
+      {/* תרופות שניתנו */}
+      {Array.isArray(d['medications_given']) && (d['medications_given'] as unknown[]).length > 0 && (
+        <Section title="תרופות שניתנו">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-gray-500 border-b border-gray-100">
+                <tr>
+                  <th className="py-1 pr-2 text-right font-medium">שעה</th>
+                  <th className="py-1 px-2 text-right font-medium">תרופה</th>
+                  <th className="py-1 px-2 text-right font-medium">מינון</th>
+                  <th className="py-1 px-2 text-right font-medium">מסלול</th>
+                  <th className="py-1 px-2 text-right font-medium">תגובה</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(d['medications_given'] as Record<string, unknown>[]).map((m, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2 font-mono">{String(m.time ?? '')}</td>
+                    <td className="py-1.5 px-2 font-medium">{String(m.name ?? '')}</td>
+                    <td className="py-1.5 px-2">{String(m.dose ?? '—')}</td>
+                    <td className="py-1.5 px-2">{String(m.route ?? '—')}</td>
+                    <td className="py-1.5 px-2">{String(m.response ?? '—')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+
+      {/* פרוצדורות שבוצעו */}
+      {Array.isArray(d['treatments']) && (d['treatments'] as unknown[]).length > 0 && (
+        <Section title="פרוצדורות שבוצעו">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-gray-500 border-b border-gray-100">
+                <tr>
+                  <th className="py-1 pr-2 text-right font-medium">שעה</th>
+                  <th className="py-1 px-2 text-right font-medium">פרוצדורה</th>
+                  <th className="py-1 px-2 text-right font-medium">הערה</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(d['treatments'] as Record<string, unknown>[]).map((t, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2 font-mono">{String(t.time ?? '')}</td>
+                    <td className="py-1.5 px-2 font-medium">{String(t.procedure ?? '')}</td>
+                    <td className="py-1.5 px-2 text-gray-500">{String(t.response ?? '—')}</td>
                   </tr>
                 ))}
               </tbody>
@@ -197,6 +348,12 @@ export default function CallDetailPage() {
         <Row label="מחלקה" value={get('hospitalDepartment')} />
         <Row label="טריאז׳" value={get('triageColor')} />
         <Row label="מקבל המטופל" value={get('handoffPersonName')} />
+        <Row label="שעת מסירה" value={get('handoffTime')} />
+        {get('refusalReason') && (
+          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            <span className="font-medium">סיבת סירוב: </span>{get('refusalReason')}
+          </div>
+        )}
       </Section>
 
       {/* הערות */}

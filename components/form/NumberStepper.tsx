@@ -60,8 +60,21 @@ export const NumberStepper = forwardRef<HTMLInputElement, NumberStepperProps>(
             inputMode="numeric"
             value={value ?? ''}
             onChange={(e) => {
-              const v = e.target.value === '' ? undefined : Number(e.target.value)
-              if (v === undefined || (v >= min && v <= max)) onChange(v)
+              const raw = e.target.value
+              if (raw === '') { onChange(undefined); return }
+              const v = Number(raw)
+              if (isNaN(v)) return
+              // אפשר הקלדה זמנית מחוץ לטווח — נחסום ב-blur
+              onChange(v)
+            }}
+            onBlur={(e) => {
+              const raw = e.target.value
+              if (raw === '') return
+              const v = Number(raw)
+              if (isNaN(v)) return
+              // כפה גבולות
+              if (v < min) onChange(min)
+              else if (v > max) onChange(max)
             }}
             min={min}
             max={max}
@@ -79,6 +92,17 @@ export const NumberStepper = forwardRef<HTMLInputElement, NumberStepperProps>(
           {unit && (
             <span className="absolute -bottom-4 inset-x-0 text-center text-xs text-gray-400">
               {unit}
+            </span>
+          )}
+          {/* אזהרה על ערך מחוץ לטווח */}
+          {vitalKey && value !== undefined && (level === 'danger') && (
+            <span className="absolute -top-5 inset-x-0 text-center text-xs text-red-600 font-medium whitespace-nowrap">
+              ⚠ ערך קיצוני
+            </span>
+          )}
+          {vitalKey && value !== undefined && (level === 'warning') && (
+            <span className="absolute -top-5 inset-x-0 text-center text-xs text-amber-600 whitespace-nowrap">
+              ↑ מחוץ לנורמה
             </span>
           )}
         </div>

@@ -26,6 +26,8 @@ const withPWA = require('next-pwa')({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   turbopack: {},
+  // Allow @react-pdf/renderer to run in API routes (uses canvas/fontkit)
+  serverExternalPackages: ['@react-pdf/renderer', 'canvas', 'nodemailer'],
 }
 
 export default withPWA(nextConfig)

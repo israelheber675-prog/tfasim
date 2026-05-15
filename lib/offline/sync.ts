@@ -49,13 +49,9 @@ export async function syncAll() {
     } catch (err) {
       errors++
       const retries = item.retries + 1
-      if (retries >= MAX_RETRIES) {
-        const errMsg = err instanceof Error ? err.message : 'Unknown error'
-        await db.syncQueue.update(item.id, { retries, })
-        await db.calls.update(item.callId, { syncError: errMsg })
-      } else {
-        await db.syncQueue.update(item.id, { retries })
-      }
+      const errMsg = err instanceof Error ? err.message : 'Unknown error'
+      await db.syncQueue.update(item.id, { retries })
+      await db.calls.update(item.callId, { syncError: errMsg })
     }
   }
 
@@ -66,11 +62,53 @@ export async function syncAll() {
   }
 }
 
+/**
+ * אפס את מונה הניסיונות לכל הפריטים שנכשלו וסנכרן מחדש.
+ * שימושי כשהחיבור לשרת חזר אחרי תקופה של כשלונות.
+ */
+export async function forceRetryAll() {
+  // אפס retries לכל הפריטים שנתקעו
+  const all = await db.syncQueue.toArray()
+  await Promise.all(
+    all
+      .filter(item => item.retries > 0)
+      .map(item => db.syncQueue.update(item.id!, { retries: 0 }))
+  )
+  // נקה שגיאות מהקריאות
+  const callIds = [...new Set(all.map(i => i.callId))]
+  await Promise.all(
+    callIds.map(id => db.calls.update(id, { syncError: undefined }))
+  )
+  // סנכרן
+  await syncAll()
+}
+
+// שדות שנשמרים מקומית בלבד ולא נשלחים לשרת / לבית החולים
+const LOCAL_ONLY_FIELDS = [
+  'hospitalStickerPhotos',  // מדבקת ח"ב — לשימוש מקומי בלבד
+  'babyStickerPhotos',      // מדבקת תינוק
+  'scenePhotos',            // תמונות זירה
+  'consentSignature',       // חתימות — נשמרות מקומית, לא משודרות
+  'refusalTreatmentSignature',
+  'refusalEvacuationSignature',
+  'witnessSignature',
+  'guardianSignature',
+  'crewLeaderSignature',
+] as const
+
+function stripLocalOnlyFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...payload }
+  for (const field of LOCAL_ONLY_FIELDS) {
+    delete clean[field]
+  }
+  return clean
+}
+
 export async function enqueueUpsert(callId: string, payload: Record<string, unknown>) {
   await db.syncQueue.add({
     callId,
     operation: 'upsert',
-    payload,
+    payload: stripLocalOnlyFields(payload),  // ← ללא תמונות ומדבקות
     createdAt: Date.now(),
     retries: 0,
   })
